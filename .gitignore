@@ -167,3 +167,4 @@ tmp/
 temp/
 
 *.safetensors
+depth_anything_v2/util/.DS_Store
