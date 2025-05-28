@@ -9,7 +9,7 @@ Original [repository](https://github.com/DepthAnything/Depth-Anything-V2).
 
 Follow these steps to set up the project environment and install dependencies.
 
-**1. Clone the Repository (Optional)**
+**1. Clone the Repository**
 
 If you haven't already, clone the repository to your local machine:
 
@@ -65,26 +65,9 @@ Install the other required packages listed in `requirements.txt`:
 pip install -r requirements.txt
 ```
 
-## Usage Example
-
-To run the model on an image:
+## Launch Gradio
 
 ```bash
-python main.py \
-    --input path/to/your/image.jpg \
-    ----output-dir path/to/save/depth_maps \
-    --model depth_anything_v2_vitl_fp32.safetensors
+python3 run_gradio.py
+
 ```
-*   Replace `path/to/your/image.jpg` and `path/to/save/depth_maps` with your actual file and dir paths.
-*   Choose the desired model using the `--model` argument.
-*   The script will automatically attempt to use a GPU (CUDA or MPS) if available, falling back to CPU otherwise.
-
-**6. Deactivate the Virtual Environment (When Done)**
-
-When you're finished working on the project, you can deactivate the environment:
-
-```bash
-deactivate
-```
-
-You should now have all the necessary dependencies installed to run the project.
