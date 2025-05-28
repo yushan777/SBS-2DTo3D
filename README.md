@@ -14,8 +14,8 @@ Follow these steps to set up the project environment and install dependencies.
 If you haven't already, clone the repository to your local machine:
 
 ```bash
-git clone https://github.com/yushan777/depth-anything-v2.git
-cd depth-anything-v2
+git clone https://github.com/yushan777/SBS-2DTo3D.git
+cd SBS-2DTo3D
 ```
 
 **2. Create a Python Virtual Environment**
