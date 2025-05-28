@@ -1,4 +1,6 @@
-# Depth Anything V2 Project
+# Non-ComfyUI version of my SBS 2D-To-3D Conversion scripts.
+
+Work-In-Progress
 
 This project utilizes the Depth Anything V2 model (safetensors formats)
 Original [repository](https://github.com/DepthAnything/Depth-Anything-V2).
