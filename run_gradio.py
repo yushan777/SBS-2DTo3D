@@ -277,9 +277,9 @@ def generate_depth_map(input_image, model_name, sbs_method, sbs_depth_scale, sbs
 
 # ================================================
 # GRADIO UI
-with gr.Blocks(title="Depth Anything V2 (Blocks UI)") as demo:
-    gr.Markdown("## Depth Anything V2 Demo")
-    gr.Markdown("Upload an image and select a model to generate grayscale and color depth maps.")
+with gr.Blocks(title="SBS 2D To 3D") as demo:
+    gr.Markdown("## SBS 2D To 3D Demo")
+    gr.Markdown("Upload an image to generate depth map and 3D Image.")
     
     with gr.Row():
         with gr.Column(scale=1):
