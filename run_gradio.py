@@ -170,32 +170,25 @@ def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output
     
     return depth_image
 
-def generate_depth_map(input_image, model_name, sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength):
-    # high-level, main entry point. handles taking the user's input image and selected model,
-    # loads the model, preprocesses the image,
-    # calls process_depthmap_image() function to perform the actual depth estimation
-    # and then calls process_image_sbs() for 3D SBS generation
-    # and then returns the results to the UI
-
-    sbs_image_pil = None # Initialize sbs_image_pil
-
+def generate_depth_map_only(input_image, model_name):
+    """Generates only the depth map from the input image."""
     if input_image is None:
-        gr.Warning("Please upload an image.")
-        return None, None
+        gr.Warning("Please upload an image for depth map generation.")
+        return None
     if model_name is None:
-        gr.Warning("Please select a model.")
-        return None, None
+        gr.Warning("Please select a model for depth map generation.")
+        return None
 
-    # Determine device (Default to GPU if available, fallback to CPU)
+    # Determine device
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        print("CUDA GPU detected. Using GPU.")
+        print("CUDA GPU detected for depth map. Using GPU.")
     elif torch.backends.mps.is_available():
          device = torch.device("mps")
-         print("Apple Silicon GPU detected. Using MPS.")
+         print("Apple Silicon GPU detected for depth map. Using MPS.")
     else:
         device = torch.device("cpu")
-        print("No GPU detected or available. Using CPU.")
+        print("No GPU detected for depth map. Using CPU.")
 
     # Load model
     try:
@@ -203,7 +196,7 @@ def generate_depth_map(input_image, model_name, sbs_method, sbs_depth_scale, sbs
     except Exception as e:
         print(f"Failed to load model: {e}")
         gr.Error(f"Failed to load model: {e}")
-        return None, None
+        return None
 
     # Preprocessing
     transform_normalize = transforms.Compose([
@@ -216,111 +209,148 @@ def generate_depth_map(input_image, model_name, sbs_method, sbs_depth_scale, sbs
     except Exception as e:
         print(f"Error during image transformation: {e}")
         gr.Error(f"Error during image transformation: {e}")
-        return None, None
+        return None
 
-
-    # Generate output filename base (use timestamp since Gradio doesn't provide original filename)
+    # Generate output filename base
     import datetime
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename_base = f"gradio_image_{timestamp}"
     
-    # Process image
+    # Process image for depth map
     try:
         depth_image_pil = process_depthmap_image(model, image_tensor, device, dtype, is_metric, output_filename_base)
-        
         if depth_image_pil:
-            # Prepare base_image for SBS: PIL to Tensor [1, H, W, C], float16, range [0,1]
-            # Ensure input_image is RGB
-            if input_image.mode != 'RGB':
-                input_image = input_image.convert('RGB')
-            
-            transform_to_tensor = transforms.ToTensor() # Converts PIL [0,255] to Tensor [0,1]
-            base_image_for_sbs = transform_to_tensor(input_image).permute(1, 2, 0).unsqueeze(0)
-            base_image_for_sbs = base_image_for_sbs.to(device=device, dtype=torch.float16)
+            print("Depth map generated successfully.")
+        return depth_image_pil
+    except Exception as e:
+        print(f"Error processing image for depth map: {e}")
+        gr.Error(f"Error processing image for depth map: {e}")
+        return None
 
-            # Prepare depth_map for SBS: PIL to Tensor [1, H, W, 1], float16, range [0,1]
-            # depth_image_pil is already grayscale
-            depth_map_for_sbs = transform_to_tensor(depth_image_pil).permute(1, 2, 0).unsqueeze(0)
-            depth_map_for_sbs = depth_map_for_sbs.to(device=device, dtype=torch.float16)
-            
-            # Ensure depth_blur_strength is odd for SBS
-            if sbs_depth_blur_strength % 2 == 0:
-                sbs_depth_blur_strength +=1
-                gr.Info(f"SBS Depth Blur Strength adjusted to {sbs_depth_blur_strength} (must be odd).")
+def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_name, sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength):
+    """Generates the SBS 3D image using the original image and a pre-generated depth map."""
+    if original_input_image is None:
+        gr.Warning("Please provide the original input image for SBS generation.")
+        return None
+    if depth_map_pil is None:
+        gr.Warning("Please generate or provide a depth map for SBS generation.")
+        return None
+    if model_name is None: # Needed for dtype
+        gr.Warning("Please select a model (needed for data type).")
+        return None
 
-            print(f"Calling process_image_sbs with method: {sbs_method}, scale: {sbs_depth_scale}, mode: {sbs_mode}, blur: {sbs_depth_blur_strength}")
-            sbs_image_tensor = process_image_sbs(
-                    base_image=base_image_for_sbs,
-                    depth_map=depth_map_for_sbs,
-                    method=sbs_method,
-                    depth_scale=sbs_depth_scale,
-                    mode=sbs_mode,
-                    depth_blur_strength=sbs_depth_blur_strength
-                )
-            
-            print(f"[run_gradio.generate_depth_map] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
-            # Expected shape [1, H, W*2, C]                
-            # Convert tensor to PIL image
-            # Squeeze batch dim, convert to CPU, then to PIL
-            # ToPILImage expects CHW or HWC (if mode specified). Tensor is HWC after squeeze.
-            # Permute from HWC to CHW for ToPILImage
-            sbs_image_pil = transforms.ToPILImage()(sbs_image_tensor.squeeze(0).cpu().permute(2, 0, 1))
-            print("SBS image generated successfully.")
 
+    # Determine device (can be different from depth map generation if run separately)
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("CUDA GPU detected for SBS. Using GPU.")
+    elif torch.backends.mps.is_available():
+         device = torch.device("mps")
+         print("Apple Silicon GPU detected for SBS. Using MPS.")
+    else:
+        device = torch.device("cpu")
+        print("No GPU detected for SBS. Using CPU.")
+
+    # Determine dtype from model_name (as load_model is not called here directly for the primary model)
+    dtype = torch.float16 if "fp16" in model_name else torch.float32
+
+    try:
+        # Prepare base_image for SBS: PIL to Tensor [1, H, W, C], float16, range [0,1]
+        if original_input_image.mode != 'RGB':
+            original_input_image = original_input_image.convert('RGB')
         
-        return depth_image_pil, sbs_image_pil
+        transform_to_tensor = transforms.ToTensor() # Converts PIL [0,255] to Tensor [0,1]
+        base_image_for_sbs = transform_to_tensor(original_input_image).permute(1, 2, 0).unsqueeze(0)
+        # Ensure correct dtype for SBS processing, which expects float16
+        base_image_for_sbs = base_image_for_sbs.to(device=device, dtype=torch.float16)
+
+
+        # Prepare depth_map for SBS: PIL to Tensor [1, H, W, 1], float16, range [0,1]
+        # depth_map_pil is already grayscale
+        depth_map_for_sbs = transform_to_tensor(depth_map_pil).permute(1, 2, 0).unsqueeze(0)
+        # Ensure correct dtype for SBS processing
+        depth_map_for_sbs = depth_map_for_sbs.to(device=device, dtype=torch.float16)
+        
+        # Ensure depth_blur_strength is odd for SBS
+        if sbs_depth_blur_strength % 2 == 0:
+            sbs_depth_blur_strength +=1
+            gr.Info(f"SBS Depth Blur Strength adjusted to {sbs_depth_blur_strength} (must be odd).")
+
+        print(f"Calling process_image_sbs with method: {sbs_method}, scale: {sbs_depth_scale}, mode: {sbs_mode}, blur: {sbs_depth_blur_strength}")
+        sbs_image_tensor = process_image_sbs(
+                base_image=base_image_for_sbs,
+                depth_map=depth_map_for_sbs,
+                method=sbs_method,
+                depth_scale=sbs_depth_scale,
+                mode=sbs_mode,
+                depth_blur_strength=sbs_depth_blur_strength
+            )
+        
+        print(f"[run_gradio.generate_sbs_from_depth] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
+        sbs_image_pil = transforms.ToPILImage()(sbs_image_tensor.squeeze(0).cpu().permute(2, 0, 1))
+        print("SBS image generated successfully.")
+        return sbs_image_pil
     
     except Exception as e:
-        print(f"Error processing image or generating SBS: {e}")
-        gr.Error(f"Error processing image or generating SBS: {e}")
-        return None, None
+        print(f"Error generating SBS image: {e}")
+        gr.Error(f"Error generating SBS image: {e}")
+        return None
 
 # ================================================
 # GRADIO UI
 with gr.Blocks(title="SBS 2D To 3D") as demo:
     gr.Markdown("## SBS 2D To 3D Demo")
-    gr.Markdown("Upload an image to generate depth map and 3D Image.")
+    gr.Markdown("Upload an image, generate its depth map, then generate the 3D SBS image.")
     
     with gr.Row():
         with gr.Column(scale=1):
-            input_image_component = gr.Image(label="Input image", type="pil", height=512)            
+            input_image_component = gr.Image(label="Input Image", type="pil", height=480)
             
         with gr.Column(scale=1):
-            output_grayscale_component = gr.Image(label="Depth map image", type="pil", height=512)
+            output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=480, interactive=False) # Depth map is output here
             
-
         with gr.Column(scale=1):
             model_dropdown_component = gr.Dropdown(
                 choices=AVAILABLE_MODELS,
-                label="Select Model",
-                value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16 or first available
+                label="Select Model (for Depth Map)",
+                value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
             )
+            generate_depth_map_button = gr.Button("1. Generate Depth Map", variant="secondary")
 
-            with gr.Group():
-                gr.Markdown("#### SBS 3D Parameters")
-                with gr.Row():
-                    sbs_method_dropdown = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
-                    sbs_mode_dropdown = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
-                with gr.Row():
-                    sbs_depth_scale_slider = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale") # Increased max to 150
-                    sbs_depth_blur_strength_slider = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)")
-
-                submit_button = gr.Button("Generate Depth Map & SBS 3D Image", variant="primary")
+            gr.Markdown("#### SBS 3D Parameters")
+            sbs_method_dropdown = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
+            sbs_mode_dropdown = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
+            sbs_depth_scale_slider = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale")
+            sbs_depth_blur_strength_slider = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)")
+            generate_sbs_button = gr.Button("2. Generate SBS 3D Image", variant="primary")
 
     with gr.Row():
-        output_sbs_component = gr.Image(type="pil", label="SBS 3D Image")
+        output_sbs_component = gr.Image(type="pil", label="Generated SBS 3D Image", height=480, interactive=False)
 
-    submit_button.click(
-        fn=generate_depth_map,
+
+    # Click handler for generating depth map
+    generate_depth_map_button.click(
+        fn=generate_depth_map_only,
         inputs=[
             input_image_component, 
-            model_dropdown_component,
+            model_dropdown_component
+        ],
+        outputs=[output_grayscale_component]
+    )
+
+    # Click handler for generating SBS image
+    generate_sbs_button.click(
+        fn=generate_sbs_image_from_depth,
+        inputs=[
+            input_image_component,         # Original image
+            output_grayscale_component,    # Generated depth map
+            model_dropdown_component,      # Model name (for dtype)
             sbs_method_dropdown,
             sbs_depth_scale_slider,
             sbs_mode_dropdown,
             sbs_depth_blur_strength_slider
         ],
-        outputs=[output_grayscale_component, output_sbs_component]
+        outputs=[output_sbs_component]
     )
 
 if __name__ == "__main__":
