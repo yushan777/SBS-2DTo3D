@@ -299,35 +299,55 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
 # ================================================
 # GRADIO UI
 with gr.Blocks(title="SBS 2D To 3D") as demo:
-    gr.Markdown("## SBS 2D To 3D Demo")
-    gr.Markdown("Upload an image, generate its depth map, then generate the 3D SBS image.")
     
-    with gr.Row():
-        with gr.Column(scale=1):
-            input_image_component = gr.Image(label="Input Image", type="pil", height=480)
+    gr.Markdown("## SBS 2D To 3D Demo")
+
+    with gr.Tabs():
+        with gr.Tab("Image"):
             
-        with gr.Column(scale=1):
-            output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=480, interactive=False) # Depth map is output here
+            gr.Markdown("Upload an image, generate its depth map, then generate the 3D SBS image.")
             
-        with gr.Column(scale=1):
-            model_dropdown_component = gr.Dropdown(
-                choices=AVAILABLE_MODELS,
-                label="Select Model (for Depth Map)",
-                value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
-            )
-            generate_depth_map_button = gr.Button("1. Generate Depth Map", variant="secondary")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    input_image_component = gr.Image(label="Input Image", type="pil", height=480)
+                    
+                with gr.Column(scale=1):
+                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=480, interactive=False) # Depth map is output here
+                    
+                with gr.Column(scale=1):
+                    model_dropdown_component = gr.Dropdown(
+                        choices=AVAILABLE_MODELS,
+                        label="Select Model (for Depth Map)",
+                        value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
+                    )
+                    generate_depth_map_button = gr.Button("1. Generate Depth Map", variant="secondary")
 
-            gr.Markdown("#### SBS 3D Parameters")
-            sbs_method_dropdown = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
-            sbs_mode_dropdown = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
-            sbs_depth_scale_slider = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale")
-            sbs_depth_blur_strength_slider = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)")
-            generate_sbs_button = gr.Button("2. Generate SBS 3D Image", variant="primary")
+                    gr.Markdown("#### SBS 3D Parameters")
+                    sbs_method_dropdown = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
+                    sbs_mode_dropdown = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
+                    sbs_depth_scale_slider = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale")
+                    sbs_depth_blur_strength_slider = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)")
+                    generate_sbs_button = gr.Button("2. Generate SBS 3D Image", variant="primary")
 
-    with gr.Row():
-        output_sbs_component = gr.Image(type="pil", label="Generated SBS 3D Image", height=480, interactive=False)
+            with gr.Row():
+                output_sbs_component = gr.Image(type="pil", label="Generated SBS 3D Image", height=480, interactive=False)
+        
+        with gr.Tab("Video"):
+            gr.Markdown("### Video Processing")
+            gr.Markdown("Upload a video to process. (Functionality to be implemented)")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    video_input_component = gr.Video(label="Input Video", height=480)
+                with gr.Column(scale=1):
+                    # Placeholder for video output or controls
+                    gr.Markdown("Video output/controls will appear here.")
+            # Placeholder for video-specific buttons or parameters
+            # generate_video_output_button = gr.Button("Process Video", variant="primary")
 
 
+    # ========================================
+    # IMAGE EVENT HANDLERS
+    # ========================================
     # Click handler for generating depth map
     generate_depth_map_button.click(
         fn=generate_depth_map_only,
@@ -352,6 +372,15 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         ],
         outputs=[output_sbs_component]
     )
+
+    # ========================================
+    # VIDEO EVENT HANDLERS
+    # ========================================
+    # needs ffmpeg
+    # we need to extract frames from the video (temp dir)
+    # produce a depthmap for each from save depth map (temp dir)
+    # produce sbs image for each frame, 
+    # combine all frames back together to a video (includ audio if original had audio)
 
 if __name__ == "__main__":
     demo.launch()
