@@ -4,3 +4,4 @@ huggingface_hub>=0.32.2
 safetensors>=0.5.3
 matplotlib>=3.10.3
 gradio>=5.31.0
+imageio-ffmpeg>=0.6.0
