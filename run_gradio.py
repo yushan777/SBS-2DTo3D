@@ -12,6 +12,11 @@ from safetensors.torch import load_file as load_safetensors # Import safetensors
 import matplotlib as mpl # Import matplotlib for colormap
 # import matplotlib.pyplot as plt  # Import matplotlib for colormap (old)
 # from matplotlib import cm  # Import colormap module
+import cv2
+import tempfile
+import shutil
+import imageio
+import subprocess
 
 # Assuming the depth_anything_v2 directory is in the same folder as main.py
 from depth_anything_v2.dpt import DepthAnythingV2
@@ -85,7 +90,7 @@ def load_model(model_name, device, models_dir='models/depthanything'):
 
     return model, dtype, is_metric
 
-def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output_filename_base):
+def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output_filename_base, output_dir_frames="output"): # Added output_dir_frames with default for backward compatibility if called elsewhere
     # performs the core inference, and post-processes the raw depth output by (normalization, resizing), 
     # converts it to a PIL image, and saves it.
 
@@ -119,7 +124,7 @@ def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output
         peak_memory_bytes = torch.cuda.max_memory_allocated(device)
         peak_memory_mib = peak_memory_bytes / (1024 * 1024) 
         peak_memory_gib = peak_memory_bytes / (1024 * 1024 * 1024)
-        print(f"Peak GPU Memory Allocated during inference: {peak_memory_mib:.2f} MiB ({peak_memory_gib:.2f} GiB)")
+        # print(f"Peak GPU Memory Allocated during inference: {peak_memory_mib:.2f} MiB ({peak_memory_gib:.2f} GiB)")
 
     # Postprocessing
     depth = depth.squeeze(0).squeeze(0) # Remove batch (dim 0) and channel (dim 0 again after first squeeze) -> (H, W)
@@ -155,16 +160,16 @@ def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output
     # colored_depth_image = Image.fromarray(colored_depth)
 
     # save the image(s) into the output directory before returning
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
+    # output_dir = "output" # Old hardcoded output
+    os.makedirs(output_dir_frames, exist_ok=True) # Use new parameter
     
     # Save grayscale depth map
-    grayscale_path = os.path.join(output_dir, f"{output_filename_base}_depth.png")
+    grayscale_path = os.path.join(output_dir_frames, f"{output_filename_base}_depth.png")
     depth_image.save(grayscale_path)
     print(f"Saved grayscale depth map to: {grayscale_path}")
     
     # Save colored depth map
-    colored_path = os.path.join(output_dir, f"{output_filename_base}_depth_colored.png")
+    colored_path = os.path.join(output_dir_frames, f"{output_filename_base}_depth_colored.png") # Use new parameter
     # colored_depth_image.save(colored_path)
     # print(f"Saved colored depth map to: {colored_path}")
     
@@ -274,9 +279,9 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
         # Ensure depth_blur_strength is odd for SBS
         if sbs_depth_blur_strength % 2 == 0:
             sbs_depth_blur_strength +=1
-            gr.Info(f"SBS Depth Blur Strength adjusted to {sbs_depth_blur_strength} (must be odd).")
+            gr.Info(f"SBS Depth Blur Strength adjusted to {sbs_depth_blur_strength} (must be odd-numbered).")
 
-        print(f"Calling process_image_sbs with method: {sbs_method}, scale: {sbs_depth_scale}, mode: {sbs_mode}, blur: {sbs_depth_blur_strength}")
+        # print(f"Calling process_image_sbs with method: {sbs_method}, scale: {sbs_depth_scale}, mode: {sbs_mode}, blur: {sbs_depth_blur_strength}")
         sbs_image_tensor = process_image_sbs(
                 base_image=base_image_for_sbs,
                 depth_map=depth_map_for_sbs,
@@ -286,7 +291,7 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
                 depth_blur_strength=sbs_depth_blur_strength
             )
         
-        print(f"[run_gradio.generate_sbs_from_depth] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
+        # print(f"[run_gradio.generate_sbs_from_depth] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
         sbs_image_pil = transforms.ToPILImage()(sbs_image_tensor.squeeze(0).cpu().permute(2, 0, 1))
         print("SBS image generated successfully.")
         return sbs_image_pil
@@ -295,6 +300,156 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
         print(f"Error generating SBS image: {e}")
         gr.Error(f"Error generating SBS image: {e}")
         return None
+
+
+def generate_sbs_video(video_path, model_name, sbs_method, sbs_mode, sbs_depth_scale, sbs_depth_blur_strength, progress=gr.Progress(track_tqdm=True)):
+    if not video_path:
+        gr.Warning("Please upload a video to process.")
+        return None
+
+    # 1. Setup (device, dtype, load depth model)
+    if torch.cuda.is_available(): 
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available(): 
+        device = torch.device("mps")
+    else: 
+        device = torch.device("cpu")
+    print(f"Using device: {device} for video processing.")
+    
+    dtype = torch.float16 if "fp16" in model_name else torch.float32
+    
+    try:
+        depth_model, _, is_metric = load_model(model_name, device) # Unpack model, dtype (ignore), is_metric
+    except Exception as e:
+        gr.Error(f"Failed to load model: {e}")
+        return None
+
+    # 2. Create Temporary Directories
+    temp_parent_dir = tempfile.mkdtemp(prefix="sbs_video_")
+    frames_orig_dir = os.path.join(temp_parent_dir, "frames_orig")
+    frames_depth_dir = os.path.join(temp_parent_dir, "frames_depth")
+    frames_sbs_dir = os.path.join(temp_parent_dir, "frames_sbs")
+    os.makedirs(frames_orig_dir, exist_ok=True)
+    os.makedirs(frames_depth_dir, exist_ok=True)
+    os.makedirs(frames_sbs_dir, exist_ok=True)
+
+    output_video_base_name = f"sbs_video_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+    final_output_video_path = os.path.join("output", output_video_base_name) # Ensure "output" dir exists
+    os.makedirs("output", exist_ok=True)
+
+    try:
+        # 3. Video Info & Audio Extraction
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps == 0: 
+            gr.Warning("Could not determine video FPS. Defaulting to 25. Output video might have incorrect speed.")
+            fps = 25.0 
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        temp_audio_path = os.path.join(temp_parent_dir, "audio.aac")
+        audio_extracted = False
+        try:
+            ffprobe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', video_path]
+            probe_result = subprocess.run(ffprobe_cmd, capture_output=True, text=True, check=False)
+            if probe_result.returncode == 0 and probe_result.stdout.strip():
+                cmd_extract_audio = ['ffmpeg', '-y', '-i', video_path, '-vn', '-acodec', 'copy', temp_audio_path]
+                subprocess.run(cmd_extract_audio, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                audio_extracted = True
+                print("Audio extracted successfully.")
+            else:
+                print(f"No audio stream found or ffprobe error. Probe output: {probe_result.stdout.strip()} {probe_result.stderr.strip()}")
+        except subprocess.CalledProcessError as e:
+            print(f"ffmpeg error during audio extraction: {e.stderr.decode() if e.stderr else e.stdout.decode() if e.stdout else 'Unknown error'}")
+        except FileNotFoundError:
+            print("ffmpeg/ffprobe not found. Audio will not be processed. Please ensure ffmpeg is installed and in PATH.")
+
+        # 4. Frame Extraction
+        print(f"Extracting {frame_count} frames at {fps} FPS...")
+        actual_frames_extracted = 0
+        for i in progress.tqdm(range(frame_count), desc="Extracting Frames"):
+            ret, frame = cap.read()
+            if not ret: 
+                print(f"Warning: Could only read {i} frames out of {frame_count}.")
+                frame_count = i # Adjust frame count if video ends prematurely
+                break
+            cv2.imwrite(os.path.join(frames_orig_dir, f"frame_{i:06d}.png"), frame)
+            actual_frames_extracted += 1
+        cap.release()
+
+        if actual_frames_extracted == 0: # Use actual_frames_extracted
+            gr.Error("No frames could be extracted from the video.")
+            return None
+
+        # 5. Process Each Frame
+        transform_normalize = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+        orig_frame_files = sorted([f for f in os.listdir(frames_orig_dir) if f.endswith(".png")])
+        for frame_idx, frame_filename in enumerate(progress.tqdm(orig_frame_files, desc="Processing Frames")):
+            frame_path = os.path.join(frames_orig_dir, frame_filename)
+            base_name = os.path.splitext(frame_filename)[0]
+            
+            input_pil_image = Image.open(frame_path).convert("RGB")
+            
+            # Depth Map
+            image_tensor = transform_normalize(input_pil_image).unsqueeze(0).to(device=device, dtype=dtype)
+            # Call modified process_depthmap_image, providing the specific output directory for depth frames
+            depth_pil_image = process_depthmap_image(depth_model, image_tensor, device, dtype, is_metric, base_name, frames_depth_dir) 
+            
+            # SBS Image
+            sbs_pil_image = generate_sbs_image_from_depth(
+                input_pil_image, depth_pil_image, model_name, 
+                sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength
+            )
+            if sbs_pil_image:
+                sbs_pil_image.save(os.path.join(frames_sbs_dir, f"sbs_{base_name}.png"))
+            else:
+                gr.Warning(f"Failed to generate SBS for frame {frame_filename}. Skipping.")
+
+        # 6. Assemble SBS Video
+        sbs_frame_files = sorted([os.path.join(frames_sbs_dir, f) for f in os.listdir(frames_sbs_dir) if f.startswith("sbs_") and f.endswith(".png")])
+        
+        if not sbs_frame_files:
+            gr.Error("No SBS frames were generated. Cannot create video.")
+            return None
+
+        sbs_video_no_audio_path = os.path.join(temp_parent_dir, "sbs_video_no_audio.mp4")
+        
+        print(f"Assembling SBS video from {len(sbs_frame_files)} frames at {fps} FPS...")
+        with imageio.get_writer(sbs_video_no_audio_path, fps=fps, codec='libx264', ffmpeg_params=['-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p']) as writer:
+            for sbs_frame_file in progress.tqdm(sbs_frame_files, desc="Assembling Video"):
+                writer.append_data(imageio.imread(sbs_frame_file))
+        
+        # 7. Add Audio Back (if extracted)
+        if audio_extracted and os.path.exists(temp_audio_path) and os.path.getsize(temp_audio_path) > 0:
+            print(f"Adding audio back to video: {final_output_video_path}")
+            cmd_mux = ['ffmpeg', '-y', '-i', sbs_video_no_audio_path, '-i', temp_audio_path, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', '-shortest', final_output_video_path]
+            mux_result = subprocess.run(cmd_mux, capture_output=True, text=True, check=False)
+            if mux_result.returncode != 0:
+                print(f"ffmpeg error during audio muxing: {mux_result.stderr}")
+                print("Falling back to video without audio.")
+                shutil.move(sbs_video_no_audio_path, final_output_video_path)
+            else:
+                print("Audio muxed successfully.")
+        else:
+            print(f"Saving video without audio (or audio processing failed/not present): {final_output_video_path}")
+            shutil.move(sbs_video_no_audio_path, final_output_video_path)
+        
+        print(f"Video processing complete. Output: {final_output_video_path}")
+        return final_output_video_path
+
+    except Exception as e:
+        gr.Error(f"Error during video processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        # 8. Cleanup
+        if os.path.exists(temp_parent_dir):
+            print(f"Cleaning up temporary directory: {temp_parent_dir}")
+            shutil.rmtree(temp_parent_dir)
 
 # ================================================
 # GRADIO UI
@@ -309,10 +464,10 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
             
             with gr.Row():
                 with gr.Column(scale=1):
-                    input_image_component = gr.Image(label="Input Image", type="pil", height=480)
+                    input_image_component = gr.Image(label="Input Image", type="pil", height=512)
                     
                 with gr.Column(scale=1):
-                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=480, interactive=False) # Depth map is output here
+                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=512, interactive=False) # Depth map is output here
                     
                 with gr.Column(scale=1):
                     model_dropdown_component = gr.Dropdown(
@@ -334,16 +489,28 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         
         with gr.Tab("Video"):
             gr.Markdown("### Video Processing")
-            gr.Markdown("Upload a video to process. (Functionality to be implemented)")
+            gr.Markdown("Upload a video to process)")
             with gr.Row():
                 with gr.Column(scale=1):
                     video_input_component = gr.Video(label="Input Video", height=480)
                 with gr.Column(scale=1):
-                    # Placeholder for video output or controls
-                    gr.Markdown("Video output/controls will appear here.")
-            # Placeholder for video-specific buttons or parameters
-            # generate_video_output_button = gr.Button("Process Video", variant="primary")
+                    model_dropdown_video = gr.Dropdown( # Renamed
+                        choices=AVAILABLE_MODELS,
+                        label="Select Model (for Depth Map)",
+                        value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
+                    )
+                    gr.Markdown("#### SBS 3D Parameters")
+                    sbs_method_video = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method") # Renamed       
+                    sbs_mode_video = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode") # Renamed
+                    sbs_depth_scale_video = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale") # Renamed
+                    sbs_depth_blur_strength_video = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)") # Renamed
+                    process_video_button = gr.Button("Process SBS 3D Video", variant="primary")
 
+
+            
+            with gr.Row():
+                # show result of the merged sbs video
+                output_sbs_video_component = gr.Video(label="Generated SBS 3D Video", interactive=False) # Defined
 
     # ========================================
     # IMAGE EVENT HANDLERS
@@ -364,7 +531,7 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         inputs=[
             input_image_component,         # Original image
             output_grayscale_component,    # Generated depth map
-            model_dropdown_component,      # Model name (for dtype)
+            model_dropdown_component,      # Model name
             sbs_method_dropdown,
             sbs_depth_scale_slider,
             sbs_mode_dropdown,
@@ -376,11 +543,25 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
     # ========================================
     # VIDEO EVENT HANDLERS
     # ========================================
-    # needs ffmpeg
+
+
+    # uses imageio-ffmpeg
     # we need to extract frames from the video (temp dir)
     # produce a depthmap for each from save depth map (temp dir)
     # produce sbs image for each frame, 
     # combine all frames back together to a video (includ audio if original had audio)
+    process_video_button.click(
+        fn=generate_sbs_video,
+        inputs=[
+            video_input_component,
+            model_dropdown_video, 
+            sbs_method_video,     
+            sbs_mode_video,       
+            sbs_depth_scale_video,
+            sbs_depth_blur_strength_video
+        ],
+        outputs=[output_sbs_video_component]
+    )
 
 if __name__ == "__main__":
     demo.launch()

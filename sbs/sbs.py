@@ -207,7 +207,7 @@ def process_image_sbs_grid_sampling(device, base_image, depth_map, depth_scale, 
 
     # Get dimensions and original dtype
     b, h, w, c = base_image.shape
-    print(f"[SBS Grid Sampling] Initial base_image shape: {base_image.shape}", color.YELLOW) # ADDED
+    # print(f"[SBS Grid Sampling] Initial base_image shape: {base_image.shape}", color.YELLOW) 
     # original_dtype = base_image.dtype
     
     
@@ -333,7 +333,7 @@ def process_image_sbs_mesh_warping(device, base_image, depth_map, depth_scale=30
     # depth_map = depth_map.to(device)
 
     B, H, W, C = base_image.shape
-    print(f"[SBS Mesh Warping] Initial base_image shape: {base_image.shape}", color.YELLOW) # ADDED
+    # print(f"[SBS Mesh Warping] Initial base_image shape: {base_image.shape}", color.YELLOW) # ADDED
         
     # Calculate eye separation based on image width and depth scale
     # Using a more direct relationship with image width
@@ -388,7 +388,7 @@ def process_image_sbs_mesh_warping(device, base_image, depth_map, depth_scale=30
     # Convert to float32 for F.grid_sample operation (F.grid_sample expects floast32)
     # Permute base image for processing (BCHW shape)
     base_image_nchw = base_image.permute(0, 3, 1, 2)
-    print(f"[SBS Mesh Warping] Permuted base_image shape: {base_image_nchw.shape}", color.YELLOW) # ADDED
+    # print(f"[SBS Mesh Warping] Permuted base_image shape: {base_image_nchw.shape}", color.YELLOW) 
 
     # Handle grid_sample with the right types
     # Always convert both image and grid to float32 for grid_sample operation
@@ -432,7 +432,7 @@ def process_image_sbs_mesh_warping(device, base_image, depth_map, depth_scale=30
 
     
     # Return image tensor
-    print(f"[SBS Mesh Warping] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
+    # print(f"[SBS Mesh Warping] sbs_image_tensor shape: {sbs_image_tensor.shape}", color.YELLOW)
     return sbs_image_tensor
 
 
