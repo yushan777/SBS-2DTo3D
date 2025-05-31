@@ -1,4 +1,9 @@
-# Non-ComfyUI version of my SBS 2D-To-3D Conversion scripts.
+# SBS 2D-To-3D Converter.
+
+This is a standalone version of my original [ComfyUI SBS 2D-To-3D custom nodes](https://github.com/yushan777/ComfyUI-Y7-SBS-2Dto3D).
+
+It will convert 2D images or videos into a simulated 3D side-by-side (SBS) format, viewable on compatible devices such as VR/AR headsets like Meta Quest, Apple Vision Pro, HTC Vive, or even those crappy cardboard ones.
+
 
 Work-In-Progress
 

@@ -176,7 +176,10 @@ def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output
     return depth_image
 
 def generate_depth_map_only(input_image, model_name):
-    """Generates only the depth map from the input image."""
+    """
+    Generates only the depth map from the input image.
+    called by generate_depth_and_sbs_combined()
+    """
     if input_image is None:
         gr.Warning("Please upload an image for depth map generation.")
         return None
@@ -301,6 +304,30 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
         gr.Error(f"Error generating SBS image: {e}")
         return None
 
+
+def generate_depth_and_sbs_combined(input_image, model_name, sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength):
+    """Combined function that generates depth map and then SBS image in sequence."""
+    
+    # Step 1: Generate depth map
+    print("Step 1: Generating depth map...")
+    depth_map = generate_depth_map_only(input_image, model_name)
+    
+    if depth_map is None:
+        return None, None  # Return None for both outputs if depth map generation fails
+    
+    # Step 2: Generate SBS image using the generated depth map
+    print("Step 2: Generating SBS 3D image...")
+    sbs_image = generate_sbs_image_from_depth(
+        input_image, 
+        depth_map, 
+        model_name, 
+        sbs_method, 
+        sbs_depth_scale, 
+        sbs_mode, 
+        sbs_depth_blur_strength
+    )
+    
+    return depth_map, sbs_image  # Return both outputs
 
 def generate_sbs_video(video_path, model_name, sbs_method, sbs_mode, sbs_depth_scale, sbs_depth_blur_strength, progress=gr.Progress(track_tqdm=True)):
     if not video_path:
@@ -464,10 +491,10 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
             
             with gr.Row():
                 with gr.Column(scale=1):
-                    input_image_component = gr.Image(label="Input Image", type="pil", height=512)
+                    input_image_component = gr.Image(label="Input Image", type="pil", height=420)
                     
                 with gr.Column(scale=1):
-                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=512, interactive=False) # Depth map is output here
+                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=420, interactive=False) # Depth map is output here
                     
                 with gr.Column(scale=1):
                     model_dropdown_component = gr.Dropdown(
@@ -475,14 +502,17 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
                         label="Select Model (for Depth Map)",
                         value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
                     )
-                    generate_depth_map_button = gr.Button("1. Generate Depth Map", variant="secondary")
+                    # generate_depth_map_button = gr.Button("1. Generate Depth Map", variant="secondary")
 
-                    gr.Markdown("#### SBS 3D Parameters")
-                    sbs_method_dropdown = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
-                    sbs_mode_dropdown = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
-                    sbs_depth_scale_slider = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale")
-                    sbs_depth_blur_strength_slider = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength (Odd Values)")
-                    generate_sbs_button = gr.Button("2. Generate SBS 3D Image", variant="primary")
+                    with gr.Group():
+                        gr.Markdown("#### SBS 3D Parameters")
+                        with gr.Row():
+                            sbs_method_image = gr.Dropdown(choices=["mesh_warping", "grid_sampling"], value="mesh_warping", label="SBS Method")        
+                            sbs_mode_image = gr.Dropdown(choices=["parallel", "cross-eyed"], value="parallel", label="SBS View Mode")
+                        
+                        sbs_depth_scale_image = gr.Slider(minimum=1, maximum=150, value=40, step=1, label="SBS Depth Scale")
+                        sbs_depth_blur_strength_image = gr.Slider(minimum=1, maximum=15, value=7, step=2, label="SBS Depth Blur Strength")
+                    generate_sbs_button = gr.Button("Generate SBS 3D Image", variant="primary") # UPDATED TEXT
 
             with gr.Row():
                 output_sbs_component = gr.Image(type="pil", label="Generated SBS 3D Image", height=480, interactive=False)
@@ -512,32 +542,43 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
                 # show result of the merged sbs video
                 output_sbs_video_component = gr.Video(label="Generated SBS 3D Video", interactive=False) # Defined
 
+        gr.Markdown(
+            """
+        | **Parameter** | **Description** |
+        |---------------|-----------------|
+        | `Model` | Selects the Depth Anything V2 model for depth map generation. Different models (VITS, VITB, VITL) offer trade-offs in speed and accuracy. FP16 versions are faster with slightly lower precision than FP32. Metric models are trained for specific datasets (Hypersim, VKITTI) and output metric depth. |
+        | `SBS Method` | The algorithm used to generate the Side-by-Side 3D image from the depth map. <br> - `mesh_warping`: Warps the image based on a 3D mesh derived from the depth map. Generally provides good results. <br> - `grid_sampling`: Samples pixels from the original image based on a grid distorted by the depth map. Can be faster but might produce different visual artifacts. |
+        | `SBS View Mode` | Determines the arrangement of the left and right eye views in the SBS image. <br> - `parallel`: Left eye view on the left, right eye view on the right. Suitable for parallel viewing. <br> - `cross-eyed`: Right eye view on the left, left eye view on the right. Suitable for cross-eyed viewing. <br><br> - *Cross-eyed mode is primarily used for viewing stereoscopic 3D images on a regular 2D screen without needing any special equipment. <br> With Parallel, the left-eye image feeds the left eye, and the right-eye image feeds the right eye. <br> But with Cross-eyed, this is flipped it places the left-eye image on the right side and the right-eye image on the left side. <br> When you cross your eyes, each eye ends up looking at the correct image, and your brain fuses them into a 3D image which will appear centered. <br> If done correctly, that middle image will appear 3D without the need for a VR headset or 3D glasses.*|
+        | `SBS Depth Scale` | Controls the intensity of the 3D effect. Higher values increase the perceived depth and separation between foreground and background objects. Range: 1-150. |
+        | `SBS Depth Blur Strength` | Applies a blur to the depth map before SBS generation. This can help smooth out artifacts in the depth map and create a softer 3D effect. Must be an odd number. Range: 1-15. |
+
+        """
+        )
     # ========================================
     # IMAGE EVENT HANDLERS
     # ========================================
     # Click handler for generating depth map
-    generate_depth_map_button.click(
-        fn=generate_depth_map_only,
-        inputs=[
-            input_image_component, 
-            model_dropdown_component
-        ],
-        outputs=[output_grayscale_component]
-    )
+    # generate_depth_map_button.click(
+    #     fn=generate_depth_map_only,
+    #     inputs=[
+    #         input_image_component, 
+    #         model_dropdown_component
+    #     ],
+    #     outputs=[output_grayscale_component]
+    # )
 
     # Click handler for generating SBS image
     generate_sbs_button.click(
-        fn=generate_sbs_image_from_depth,
+        fn=generate_depth_and_sbs_combined,
         inputs=[
             input_image_component,         # Original image
-            output_grayscale_component,    # Generated depth map
             model_dropdown_component,      # Model name
-            sbs_method_dropdown,
-            sbs_depth_scale_slider,
-            sbs_mode_dropdown,
-            sbs_depth_blur_strength_slider
+            sbs_method_image,
+            sbs_depth_scale_image,
+            sbs_mode_image,
+            sbs_depth_blur_strength_image
         ],
-        outputs=[output_sbs_component]
+        outputs=[output_grayscale_component, output_sbs_component]
     )
 
     # ========================================
@@ -565,3 +606,50 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
 
 if __name__ == "__main__":
     demo.launch()
+
+
+"""
+Image Processing Path
+===========================
+
+generate_sbs_button.click()
+└── generate_depth_and_sbs_combined()
+    ├── generate_depth_map_only()
+    │   ├── load_model()
+    │   │   ├── hf_hub_download() [if model not cached]
+    │   │   ├── load_safetensors()
+    │   │   └── DepthAnythingV2() [model initialization]
+    │   └── process_depthmap_image()
+    │       ├── F.interpolate() [resize to multiple of 14]
+    │       ├── model() [inference]
+    │       ├── depth normalization & post-processing
+    │       └── Image.fromarray() [convert to PIL]
+    └── generate_sbs_image_from_depth()
+        └── process_image_sbs() [from sbs.sbs module]
+
+Video Processing Path
+===========================
+
+process_video_button.click()
+└── generate_sbs_video()
+    ├── load_model()
+    │   ├── hf_hub_download() [if model not cached]
+    │   ├── load_safetensors()
+    │   └── DepthAnythingV2() [model initialization]
+    ├── tempfile.mkdtemp() [create temp directories]
+    ├── cv2.VideoCapture() [video info extraction]
+    ├── subprocess.run() [ffmpeg audio extraction]
+    ├── Frame Extraction Loop:
+    │   └── cv2.imwrite() [save each frame as PNG]
+    ├── Frame Processing Loop (for each frame):
+    │   ├── process_depthmap_image()
+    │   │   ├── F.interpolate() [resize to multiple of 14]
+    │   │   ├── model() [inference]
+    │   │   ├── depth normalization & post-processing
+    │   │   └── Image.fromarray() [convert to PIL]
+    │   └── generate_sbs_image_from_depth()
+    │       └── process_image_sbs() [from sbs.sbs module]
+    ├── imageio.get_writer() [assemble video from SBS frames]
+    ├── subprocess.run() [ffmpeg audio muxing]
+    └── shutil.rmtree() [cleanup temp directories]
+"""
