@@ -36,9 +36,7 @@ AVAILABLE_MODELS = [
     'depth_anything_v2_vitb_fp16.safetensors',
     'depth_anything_v2_vitb_fp32.safetensors',
     'depth_anything_v2_vitl_fp16.safetensors',
-    'depth_anything_v2_vitl_fp32.safetensors',
-    'depth_anything_v2_metric_hypersim_vitl_fp32.safetensors',
-    'depth_anything_v2_metric_vkitti_vitl_fp32.safetensors'
+    'depth_anything_v2_vitl_fp32.safetensors'
 ]
 
 # load depth-anything-2 model
