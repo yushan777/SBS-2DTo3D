@@ -1,4 +1,4 @@
-# SBS 2D-To-3D Converter.
+# SBS 2D-To-3D Converter
 
 This is a standalone version of my original [ComfyUI SBS 2D-To-3D custom nodes](https://github.com/yushan777/ComfyUI-Y7-SBS-2Dto3D).
 
