@@ -180,7 +180,7 @@ def process_depthmap_image(model, image_tensor, device, dtype, is_metric, output
     
     return depth_image
 
-def generate_depth_map_only(input_image, downscale_to, model_name):
+def generate_depth_map_only(input_image, depthmap_input_scale, model_name):
     """
     Generates only the depth map from the input image.
     called by generate_depth_and_sbs_combined()
@@ -214,17 +214,17 @@ def generate_depth_map_only(input_image, downscale_to, model_name):
     # Create a working copy of the input image for depth processing
     image_for_depth_processing = input_image.copy()
 
-    # Apply downscaling if downscale_to is less than 1.0 (100%)
-    if downscale_to < 1.0:
+    # Apply downscaling if depthmap_input_scale is less than 1.0 (100%)
+    if depthmap_input_scale < 1.0:
         original_width, original_height = image_for_depth_processing.size
-        new_width = int(original_width * downscale_to)
-        new_height = int(original_height * downscale_to)
+        new_width = int(original_width * depthmap_input_scale)
+        new_height = int(original_height * depthmap_input_scale)
 
         # Ensure dimensions are at least 1 pixel
         new_width = max(1, new_width)
         new_height = max(1, new_height)
 
-        print(f"Downscaling copy of image for depth map from {original_width}x{original_height} to {new_width}x{new_height} ({downscale_to*100:.0f}%)")
+        print(f"Downscaling copy of image for depth map from {original_width}x{original_height} to {new_width}x{new_height} ({depthmap_input_scale*100:.0f}%)")
         image_for_depth_processing = image_for_depth_processing.resize((new_width, new_height), Image.Resampling.BICUBIC)
     
     # Now, image_for_depth_processing is the (potentially) downscaled image.
@@ -330,12 +330,12 @@ def generate_sbs_image_from_depth(original_input_image, depth_map_pil, model_nam
         return None
 
 
-def generate_depth_and_sbs_combined(input_image, model_name, downscale_to, sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength):
+def generate_depth_and_sbs_combined(input_image, model_name, depthmap_input_scale, sbs_method, sbs_depth_scale, sbs_mode, sbs_depth_blur_strength):
     """Combined function that generates depth map and then SBS image in sequence."""
     
     # Step 1: Generate depth map
     print("Step 1: Generating depth map...")
-    depth_map = generate_depth_map_only(input_image,downscale_to, model_name)
+    depth_map = generate_depth_map_only(input_image,depthmap_input_scale, model_name)
     
     if depth_map is None:
         return None, None  # Return None for both outputs if depth map generation fails
@@ -355,7 +355,7 @@ def generate_depth_and_sbs_combined(input_image, model_name, downscale_to, sbs_m
     
     return depth_map, sbs_image  # Return both outputs
 
-def generate_sbs_video(video_path, model_name, downscale_frame_to, sbs_method, sbs_mode, sbs_depth_scale, sbs_depth_blur_strength, progress=gr.Progress(track_tqdm=True)):
+def generate_sbs_video(video_path, model_name, depthmap_frame_input_scale, sbs_method, sbs_mode, sbs_depth_scale, sbs_depth_blur_strength, progress=gr.Progress(track_tqdm=True)):
     if not video_path:
         gr.Warning("Please upload a video to process.")
         return None
@@ -449,17 +449,17 @@ def generate_sbs_video(video_path, model_name, downscale_frame_to, sbs_method, s
             # Create a working copy of the input frame for depth processing
             frame_for_depth_processing = input_pil_image.copy()
 
-            # Apply downscaling if downscale_frame_to is less than 1.0 (100%)
-            if downscale_frame_to < 1.0:
+            # Apply downscaling if depthmap_frame_input_scale is less than 1.0 (100%)
+            if depthmap_frame_input_scale < 1.0:
                 original_width, original_height = frame_for_depth_processing.size
-                new_width = int(original_width * downscale_frame_to)
-                new_height = int(original_height * downscale_frame_to)
+                new_width = int(original_width * depthmap_frame_input_scale)
+                new_height = int(original_height * depthmap_frame_input_scale)
 
                 # Ensure dimensions are at least 1 pixel
                 new_width = max(1, new_width)
                 new_height = max(1, new_height)
 
-                print(f"Downscaling frame copy for depth map from {original_width}x{original_height} to {new_width}x{new_height} ({downscale_frame_to*100:.0f}%)")
+                print(f"Downscaling frame copy for depth map from {original_width}x{original_height} to {new_width}x{new_height} ({depthmap_frame_input_scale*100:.0f}%)")
                 # Using BICUBIC to match your previous implementation for single images
                 frame_for_depth_processing = frame_for_depth_processing.resize((new_width, new_height), Image.Resampling.BICUBIC)
             
@@ -525,7 +525,7 @@ def generate_sbs_video(video_path, model_name, downscale_frame_to, sbs_method, s
 # GRADIO UI
 with gr.Blocks(title="SBS 2D To 3D") as demo:
     
-    gr.Markdown("## SBS 2D To 3D Demo")
+    gr.Markdown("## SBS 2D To 3D Converter")
 
     with gr.Tabs():
         with gr.Tab("Image"):
@@ -534,10 +534,10 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
             
             with gr.Row():
                 with gr.Column(scale=1):
-                    input_image_component = gr.Image(label="Input Image", type="pil", height=420)
+                    input_image_component = gr.Image(label="Input Image", type="pil", height=492)
                     
                 with gr.Column(scale=1):
-                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=420, interactive=False) # Depth map is output here
+                    output_grayscale_component = gr.Image(label="Generated Depth Map", type="pil", height=492, interactive=False) # Depth map is output here
                     
                 with gr.Column(scale=1):                    
                     model_dropdown_component = gr.Dropdown(
@@ -545,7 +545,7 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
                         label="Select Model (for Depth Map)",
                         value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
                     )
-                    downscale_to = gr.Slider(minimum=0.10, maximum=1.00, value=0.75, step=0.01, label="Downscale to")
+                    depthmap_input_scale = gr.Slider(minimum=0.10, maximum=1.00, value=0.75, step=0.01, label="Depth Map Input Scale")
 
 
                     with gr.Group():
@@ -566,14 +566,14 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
             gr.Markdown("Upload a video to process)")
             with gr.Row():
                 with gr.Column(scale=1):
-                    video_input_component = gr.Video(label="Input Video", height=480)
+                    video_input_component = gr.Video(label="Input Video", height=492)
                 with gr.Column(scale=1):
                     model_dropdown_video = gr.Dropdown( # Renamed
                         choices=AVAILABLE_MODELS,
                         label="Select Model (for Depth Map)",
                         value=AVAILABLE_MODELS[4] if len(AVAILABLE_MODELS) > 4 else (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else None) # Default to vitl_fp16
                     )
-                    downscale_frame_to = gr.Slider(minimum=0.10, maximum=1.00, value=0.75, step=0.01, label="Downscale to")
+                    depthmap_frame_input_scale = gr.Slider(minimum=0.10, maximum=1.00, value=0.75, step=0.01, label="Depth Map Input Scale")
 
                     with gr.Group():
                         gr.Markdown("#### SBS 3D Parameters")
@@ -593,10 +593,10 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         | **Parameter** | **Description** |
         |---------------|-----------------|
         | `Model` | Selects the Depth Anything V2 model for depth map generation. Different models (VITS (small), VITB (base), VITL (large)) offer trade-offs in speed and accuracy. <br> "If it does not exist, it will download the selected model into the directory `models/depthanything`. The default `...vitl-fp16` variant is approx 600MB. |
-        | `Downscale to` | Downscales a copy of the input image or video frame for generating depth map. The original image or frame is unchanged. <br> If images are small, you can leave this at 100% (1.0)<br><br>Creating depth maps from large input images can be memory intensive. Images larger than say 1280×1280 (1.6MP) should be downscaled before being passed to the depth estimation model.  The generated depth map will then be scaled back up to match the original image's resolution. <br> Remember that depth maps are about relative distances, not fine details. This means that:<br><br>- Lower-resolution depth maps (like 512×512 or 1024×1024) still preserve useful spatial information.<br>- Downscaling the input image before depth generation not only reduces VRAM usage, but when scaled back up, can also smooth the depth map — often improving the final 3D/parallax effect. |
+        | `Depth Map Input Scale` | Downscales a copy of the image or video frame for generating the depth map. The original image or frame is unchanged. <br><br> At 100% (1.0), the depth map is generated at the same size as the input image or video frame. <br> Creating depth maps from large input images can be memory intensive. <br>Images larger than say, 1280×1280 (1.6MP) should be downscaled before being passed to the depth estimation model. <br> When generating the SBS output, the generated depth map will then be scaled back up to match the original image's resolution. <br> Remember that depth maps are about relative distances, not fine details. This means that:<br><br>- Lower-resolution depth maps (like 512×512 or 1024×1024) still preserve useful spatial information.<br>- Downscaling the input image before depth generation not only reduces VRAM usage, but when scaled back up, can also smooth the depth map — often improving the final 3D/parallax effect. |
         | `SBS Method` | The algorithm used to generate the Side-by-Side 3D image from the depth map. <br> - `mesh_warping`: Warps the image based on a 3D mesh derived from the depth map. Generally provides good results. <br> - `grid_sampling`: Samples pixels from the original image based on a grid distorted by the depth map. Can be faster but might produce different visual artifacts. |
         | `SBS View Mode` | Determines the arrangement of the left and right eye views in the SBS image. <br> - `parallel`: Left eye view on the left, right eye view on the right. Suitable for parallel viewing. <br> - `cross-eyed`: Right eye view on the left, left eye view on the right. Suitable for cross-eyed viewing. <br><br> - *Cross-eyed mode is primarily used for viewing stereoscopic 3D images on a regular 2D screen without needing any special equipment. <br> With Parallel, the left-eye image feeds the left eye, and the right-eye image feeds the right eye. <br> But with Cross-eyed, this is flipped it places the left-eye image on the right side and the right-eye image on the left side. <br> When you cross your eyes, each eye ends up looking at the correct image, and your brain fuses them into a 3D image which will appear centered. <br> If done correctly, that middle image will appear 3D without the need for a VR headset or 3D glasses.*|
-        | `SBS Depth Scale` | Controls the intensity of the 3D effect. Higher values increase the perceived depth and separation between foreground and background objects. Range: 1-150. |
+        | `SBS Depth Scale` | Controls the intensity of the 3D effect. Higher values increase the perceived depth and separation between foreground and background elements (for portraits, you may get very long, pointy noses at high values). Range: 1-150. |
         | `SBS Depth Blur Strength` | Applies a blur to the depth map before SBS generation. This can help smooth out artifacts in the depth map and create a softer 3D effect. Must be an odd number. Range: 1-15. |
 
         """
@@ -620,7 +620,7 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         inputs=[
             input_image_component,         # Original image
             model_dropdown_component,      # Model name
-            downscale_to,
+            depthmap_input_scale,
             sbs_method_image,
             sbs_depth_scale_image,
             sbs_mode_image,
@@ -644,7 +644,7 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
         inputs=[
             video_input_component,
             model_dropdown_video,
-            downscale_frame_to,  
+            depthmap_frame_input_scale,  
             sbs_method_video,     
             sbs_mode_video,       
             sbs_depth_scale_video,
