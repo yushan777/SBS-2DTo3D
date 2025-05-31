@@ -562,8 +562,7 @@ with gr.Blocks(title="SBS 2D To 3D") as demo:
                 output_sbs_component = gr.Image(type="pil", label="Generated SBS 3D Image", height=480, interactive=False)
         
         with gr.Tab("Video"):
-            gr.Markdown("### Video Processing")
-            gr.Markdown("Upload a video to process)")
+            gr.Markdown("Upload a video to process")
             with gr.Row():
                 with gr.Column(scale=1):
                     video_input_component = gr.Video(label="Input Video", height=492)
