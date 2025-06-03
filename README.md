@@ -16,7 +16,7 @@ Follow these steps to set up the project environment and install dependencies.
 
 **1. Clone the Repository**
 
-If you haven't already, clone the repository to your local machine:
+Clone the repository to your local machine:
 
 ```bash
 git clone https://github.com/yushan777/SBS-2DTo3D.git
