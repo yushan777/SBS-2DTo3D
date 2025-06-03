@@ -7,7 +7,7 @@ It will convert 2D images or videos into a simulated 3D side-by-side (SBS) forma
 
 ![screenshot](assets/screenshot.jpg)
 
-This project utilizes the Depth Anything V2 model (safetensors formats)
+This project utilizes the Depth Anything V2 model (safetensors format)
 Original [repository](https://github.com/DepthAnything/Depth-Anything-V2).
 
 ## Installation
