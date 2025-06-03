@@ -31,8 +31,6 @@ It's highly recommended to use a virtual environment to manage project dependenc
 python3 -m venv venv 
 # Or python -m venv venv
 ```
-*   This command creates a directory named `venv` in your project folder containing a dedicated Python installation.
-
 **3. Activate the Virtual Environment**
 
 You need to activate the environment before installing packages. The command differs based on your operating system:
