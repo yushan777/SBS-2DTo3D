@@ -37,6 +37,23 @@ from utils.colored_print import color, style
 # │ 0.5                │  Strong smoothing — maximizes stability, but may cause lag in depth response during rapid scene changes.│
 # └────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
+# The convergence parameter controls the zero-disparity plane (where objects appear at screen depth).
+# This is more important for the anaglyph format
+# 
+# ┌─────────────────┬─────────────────────────────────────────────────────────────────────────────────┐
+# │ Convergence     │                                Effect                                           │
+# │ Value           │                                                                                 │
+# ├─────────────────┼─────────────────────────────────────────────────────────────────────────────────┤
+# │ 0.0             │ Far objects (black in depth map) appear at screen depth                        │
+# │ 0.5 (default)   │ Middle depth objects appear at screen depth - balanced for most content        │
+# │ 1.0+            │ Near objects (white in depth map) appear at screen depth                       │
+# └─────────────────┴─────────────────────────────────────────────────────────────────────────────────┘
+#
+# Proper convergence eliminates excessive "split" and reduces eye strain.
+# This applies to anaglyph more than standard SBS
+# Adjust convergence based on your content - portraits may benefit from higher values (0.6-0.8),
+# while landscapes may work better with lower values (0.3-0.5).
+
 DEBUG_MODE = False  # Set to False to disable debug left/right tinting
 
 # Global target dtype (change this to float32 or float16 as needed)
